@@ -204,8 +204,12 @@ class GamryParser:
                 temp.set_index(curve_keys[0], inplace=True)
 
                 for key in curve_keys:
-                    nonnumeric_keys = ['Pt','Over']
-                    if key not in nonnumeric_keys:
+                    nonnumeric_keys = ['Over',]
+                    if not in nonnumeric_keys:
+                        continue
+                    elif key == 'Pt':
+                        temp.index = temp.index.map(int)
+                    else:
                         temp[key] = temp[key].apply(locale.atof)
 
                 if not bool(self.curve_units.items()):
