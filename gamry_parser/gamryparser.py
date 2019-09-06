@@ -205,7 +205,7 @@ class GamryParser:
 
                 for key in curve_keys:
                     nonnumeric_keys = ['Over',]
-                    if not in nonnumeric_keys:
+                    if key in nonnumeric_keys:
                         continue
                     elif key == 'Pt':
                         temp.index = temp.index.map(int)
