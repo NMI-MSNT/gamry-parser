@@ -61,16 +61,16 @@ class CyclicVoltammetry(parser.GamryParser):
 
         return df[['Vf', 'Im']]
 
-    def get_peaks(self, curve=0, width_V=0.02, peak_range_x=None):
+    def get_peaks(self, curves=None, width_V=0.02, peak_range_x=None):
         """ retrieve peaks from cyclic voltammetry curve
         See scipy.signal.find_peaks for more details. It would be useful to pass additional arguments to find_peaks.
         Currently, the "peak" at the positive voltage limit is returned. This can be prevented with peak_range_x.
         The "peak" at the negative voltage limit is not returned.
 
         Args:
-            curve (int, optional): curve number to find peaks. Defaults to 0.
-            width_V (float, optional): mininum peak width in volts. Defaults to 0.02 V = 20 mV
-            peak_range_x: peaks outside of this range will be discarded. Two values required, e.g. [-1, 1]
+            curves:         curve indexes number to find peaks. Defaults to all. A single index should be passed as a list/array
+            width_V:        mininum peak width in volts. Defaults to 0.02 V = 20 mV
+            peak_range_x:   peaks outside of this range will be discarded. Two values required, e.g. [-1, 1]
 
         Returns:
             pandas.DataFrame:
@@ -86,36 +86,50 @@ class CyclicVoltammetry(parser.GamryParser):
                 - curve
 
         """
-        data = self.get_curve_data(curve)
-        x = data['Vf'] # should be in V
-        y = data['Im'] # should be in A
         
-        dx = np.mean(np.abs(np.diff(x))) # V
-        width = int(width_V/dx)
-        pks_pos, props_pos = find_peaks(y, width=width, height=0)
-        pks_neg, props_neg = find_peaks(-y, width=width, height=0)
-        props_neg['peak_heights'] = -props_neg['peak_heights']
-        props_neg['prominences'] = -props_neg['prominences']
-        pks = np.concatenate((pks_pos,pks_neg))
-        props = dict()
-        for key in props_pos.keys():
-            props[key] = np.concatenate((props_pos[key], props_neg[key]))
-        if peak_range_x is not None:
-            outofrange = (x.iloc[pks]<peak_range_x[0]) | (x.iloc[pks]>peak_range_x[1])
-            pks = np.delete(pks, np.where(outofrange))
-            for key in props.keys():
-                props[key] = np.delete(props[key], np.where(outofrange))
-        props['peak_locations'] = x.iloc[pks]
-        props = pd.DataFrame(props)
-        props['curve'] = curve
+        all_curves = np.arange(self.get_curve_count())
+        if curves is None:
+            curves = all_curves
+        else:
+            for p in curves:
+                assert p in all_curves, f'Cycle index {p} invalid'
         
-        return props
+        peaks = dict()
+        for curve in curves:
+            data = self.get_curve_data(curve)
+            x = data['Vf'] # should be in V
+            y = data['Im'] # should be in A
+            
+            dx = np.mean(np.abs(np.diff(x))) # V
+            width = int(width_V/dx)
+            pks_pos, props_pos = find_peaks(y, width=width, height=0)
+            pks_neg, props_neg = find_peaks(-y, width=width, height=0)
+            props_neg['peak_heights'] = -props_neg['peak_heights']
+            props_neg['prominences'] = -props_neg['prominences']
+            pks = np.concatenate((pks_pos,pks_neg))
+            peaks_temp = dict()
+            for key in props_pos.keys():
+                peaks_temp[key] = np.concatenate((props_pos[key], props_neg[key]))
+            if peak_range_x is not None:
+                outofrange = (x.iloc[pks]<peak_range_x[0]) | (x.iloc[pks]>peak_range_x[1])
+                pks = np.delete(pks, np.where(outofrange))
+                for key in peaks_temp.keys():
+                    peaks_temp[key] = np.delete(peaks_temp[key], np.where(outofrange))
+            peaks_temp['peak_locations'] = x.iloc[pks]
+            peaks_temp = pd.DataFrame(peaks_temp)
+            peaks_temp['curve'] = curve
+            if len(peaks)==0:
+                peaks = peaks_temp
+            else:
+                peaks = peaks.append(peaks_temp)
+        
+        return peaks
 
     def add_arrow(self, lines, number=None, position=None, size=15, color=None):
         """
         add an arrow to a line.
 
-        line:       Line2D object
+        lines:      Line2D object
         number:     number of arrows, to be evenly distributed
         position:   x-position of the arrow. If None, mean of xdata is taken
         size:       size of the arrow in fontsize points
@@ -166,15 +180,16 @@ class CyclicVoltammetry(parser.GamryParser):
                 )
         
         
-    def plot(self, ax=None, curves=None, units=None, peaks=True, peak_range_x=None, arrows=True, EOC=True, notes=True, cm='winter_r', verbose=False):
+    def plot(self, ax=None, curves=None, units=None, peaks=True, peak_range_x=None, peak_position='line', arrows=True, EOC=True, notes=True, cm='winter_r', verbose=False):
         """ plot cyclic voltammetry curve
         
         Args:
             ax:             matplotlib axis to plot on
-            curves:         indices of curves to plot
+            curves:         indices of curves to plot. A single index should be passed as a list/array
             units:          units to plot. Default V, A
             peaks:          mark peaks?
             peak_range_x:   discard peaks outside of this range
+            peak_position:  where to show plots ('line', 'above')
             arrows:         show scan direction with arrows
             EOC:            show vertical line at EOC
             notes:          print notes on graph
@@ -220,16 +235,12 @@ class CyclicVoltammetry(parser.GamryParser):
         if curves is None:
             curves = all_curves
         else:
-            if type(curves) is int:
-                assert curves in all_curves, f'Cycle index {curves} invalid'
-                curves = [curves,]
-            else:
-                for p in curves:
-                    assert p in all_curves, f'Cycle index {p} invalid'
+            for p in curves:
+                assert p in all_curves, f'Cycle index {p} invalid'
         # https://tonysyu.github.io/line-color-cycling.html
         n_lines = len(all_curves)
-    #    cmap = plt.cm.winter_r
         cmap = plt.cm.get_cmap(cm,n_lines+1)
+        cmap_peaks = plt.cm.get_cmap(cm,n_lines+1)
         c = np.arange(0., n_lines)
         norm = mpl.colors.BoundaryNorm(np.arange(len(c)+1)+0.5-1,len(c))
         sm = plt.cm.ScalarMappable(norm=norm, cmap=cmap)
@@ -243,19 +254,29 @@ class CyclicVoltammetry(parser.GamryParser):
         x = 'Vf'
         y = 'Im'
         
-        for curve_idx in curves:
-            curve = self.get_curve_data(curve_idx)
+        max_y = 0
+        for curve in curves:
+            data = self.get_curve_data(curve)
             if verbose:
-                print(f'Plotting curve {curve_idx} with V range ({min(curve[x])}, {max(curve[y])})')
+                print(f'Plotting curve {curve} with V range ({min(data[x])}, {max(data[y])})')
             
-            line = ax.plot(curve[x]*scaling[x],curve[y]*scaling[y], color=cmap(color_idx[curve_idx])) #also user autumn
+            line = ax.plot(data[x]*scaling[x],data[y]*scaling[y], color=cmap(color_idx[curve]))
             if arrows:
                 self.add_arrow(line, number=8)
             if peaks:
-                curve_peaks = self.get_peaks(curve_idx, peak_range_x=peak_range_x)
-                ax.plot(curve_peaks[curve_peaks['curve']==curve_idx]['peak_locations']*scaling[x],
-                        curve_peaks[curve_peaks['curve']==curve_idx]['peak_heights']*scaling[y],
+                max_y = max(max_y,np.max(data[y]*scaling[y]))
+        if peaks:
+            curve_peaks = self.get_peaks(curves, peak_range_x=peak_range_x)
+            if peak_position == 'line':
+                ax.plot(curve_peaks['peak_locations']*scaling[x],
+                        curve_peaks['peak_heights']*scaling[y],
                         'rx')
+            elif peak_position == 'above':
+                ax.plot(curve_peaks['peak_locations']*scaling[x],
+                        np.ones(len(curve_peaks))*np.max(curve_peaks['peak_heights'])*scaling[y]*1.1,
+                        'k|')
+            else:
+                assert False, 'peak_position not defined'
             
         ax.set_xlabel(f'Voltage vs. ref ({units[x]})')
         ax.set_ylabel(f'Current ({units[y].replace("u","µ")})')
