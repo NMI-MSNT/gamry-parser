@@ -58,7 +58,7 @@ class CyclicVoltammetry(parser.GamryParser):
         assert curve >= 0, 'Invalid curve ({}). Indexing starts at 0'.format(curve)
         assert curve < self.curve_count, 'Invalid curve ({}). File contains {} total curves.'.format(curve, self.curve_count)
         df = self.curves[curve]
-        
+
         return df[['Vf', 'Im']]
 
     def get_peaks(self, curve=0, width_V=0.02, peak_range_x=None):
