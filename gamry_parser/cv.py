@@ -180,7 +180,7 @@ class CyclicVoltammetry(parser.GamryParser):
                 )
         
         
-    def plot(self, ax=None, curves=None, units=None, peaks=True, peak_range_x=None, peak_position='line', arrows=True, EOC=True, notes=True, cm='winter_r', verbose=False):
+    def plot(self, ax=None, curves=None, units=None, peaks=True, peak_range_x=None, peak_position='line', arrows=True, EOC=True, notes=True, colorbar=True, cm=None, color=None, verbose=False):
         """ plot cyclic voltammetry curve
         
         Args:
@@ -216,6 +216,15 @@ class CyclicVoltammetry(parser.GamryParser):
                 x: float(pq.Quantity(1,stored_units[x]).rescale(units[x]).magnitude),
                 y: float(pq.Quantity(1,stored_units[y]).rescale(units[y]).magnitude)
                 }
+        if cm is not None and color is not None:
+            print('Unexpected: cm and color are both specified. Ignoring color')
+        if cm is None:
+            cm = 'winter_r'
+        if color is None:
+            use_cm = True
+        else:
+            use_cm = False
+            colorbar = False
             
         if self.get_experiment_type()!='CV':
             print(f'Cannot plot experiment type {self.get_experiment_type()} as CV ({self.fname})')
@@ -240,7 +249,6 @@ class CyclicVoltammetry(parser.GamryParser):
         # https://tonysyu.github.io/line-color-cycling.html
         n_lines = len(all_curves)
         cmap = plt.cm.get_cmap(cm,n_lines+1)
-        cmap_peaks = plt.cm.get_cmap(cm,n_lines+1)
         c = np.arange(0., n_lines)
         norm = mpl.colors.BoundaryNorm(np.arange(len(c)+1)+0.5-1,len(c))
         sm = plt.cm.ScalarMappable(norm=norm, cmap=cmap)
@@ -260,7 +268,9 @@ class CyclicVoltammetry(parser.GamryParser):
             if verbose:
                 print(f'Plotting curve {curve} with V range ({min(data[x])}, {max(data[y])})')
             
-            line = ax.plot(data[x]*scaling[x],data[y]*scaling[y], color=cmap(color_idx[curve]))
+            if use_cm:
+                color = cmap(color_idx[curve])
+            line = ax.plot(data[x]*scaling[x],data[y]*scaling[y], color=color)
             if arrows:
                 self.add_arrow(line, number=8)
             if peaks:
@@ -280,8 +290,9 @@ class CyclicVoltammetry(parser.GamryParser):
             
         ax.set_xlabel(f'Voltage vs. ref ({units[x]})')
         ax.set_ylabel(f'Current ({units[y].replace("u","µ")})')
-
-        plt.colorbar(sm, ticks=curves, orientation='vertical', label='Cycle', aspect=40)
+        
+        if colorbar:
+            plt.colorbar(sm, ticks=curves, orientation='vertical', label='Cycle', aspect=40)
         if notes:
             ax.text(0.02,0.98,self.get_header()['NOTES'],
                     verticalalignment='top',
